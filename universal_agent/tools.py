@@ -1,48 +1,36 @@
-"""Tool assembly with risk tiers.
-
-Tools are grouped by safety level so privileged tools (shell, code exec)
-are not exposed on untrusted interfaces (public Telegram/Slack bots).
-
-Tiers:
-  SAFE         — always loaded, no risk (web search, read-only file ops)
-  PRODUCTIVITY — loaded when credentials exist (GitHub, Exa, image gen)
-  PRIVILEGED   — loaded only on trusted interfaces (shell, code sandbox)
-"""
+# Tool assembly with risk tiers
+#
+# SAFE         — always loaded (web search, read-only file ops)
+# PRODUCTIVITY — loaded when credentials exist (GitHub, Exa, image gen)
+# PRIVILEGED   — loaded only on trusted interfaces (shell, code sandbox)
 
 import os
-from enum import Enum
+from enum import IntEnum
 from typing import List
 
 
-class ToolTier(str, Enum):
-    SAFE = "safe"
-    PRODUCTIVITY = "productivity"
-    PRIVILEGED = "privileged"
+class ToolTier(IntEnum):
+    SAFE = 1
+    PRODUCTIVITY = 2
+    PRIVILEGED = 3
 
 
 def get_tools(tier: ToolTier = ToolTier.SAFE, db=None) -> List:
-    """Assemble tools based on the requested trust tier.
-
-    Higher tiers include all lower tiers.
-    """
     tools = []
 
-    # -- SAFE: always available, no API keys needed for core search ----------
     from agno.tools.duckduckgo import DuckDuckGoTools
     from agno.tools.file import FileTools
 
     tools.append(DuckDuckGoTools())
     tools.append(FileTools())
 
-    # Crawl4ai needs the package but no API key
     try:
         from agno.tools.crawl4ai import Crawl4aiTools
         tools.append(Crawl4aiTools(max_length=5000))
     except ImportError:
         pass
 
-    if tier in (ToolTier.PRODUCTIVITY, ToolTier.PRIVILEGED):
-        # -- PRODUCTIVITY: credential-gated ----------------------------------
+    if tier >= ToolTier.PRODUCTIVITY:
         if os.getenv("EXA_API_KEY"):
             from agno.tools.exa import ExaTools
             tools.append(ExaTools())
@@ -63,8 +51,7 @@ def get_tools(tier: ToolTier = ToolTier.SAFE, db=None) -> List:
             from agno.tools.eleven_labs import ElevenLabsTools
             tools.append(ElevenLabsTools())
 
-    if tier == ToolTier.PRIVILEGED:
-        # -- PRIVILEGED: trusted interfaces only (CLI, explicit approval) ----
+    if tier >= ToolTier.PRIVILEGED:
         from agno.tools.shell import ShellTools
         tools.append(ShellTools())
 
@@ -75,7 +62,6 @@ def get_tools(tier: ToolTier = ToolTier.SAFE, db=None) -> List:
             except ImportError:
                 pass
 
-    # -- SCHEDULER: available if db provided (any tier) ----------------------
     if db is not None:
         from agno.tools.scheduler import SchedulerTools
         tools.append(SchedulerTools(db=db))

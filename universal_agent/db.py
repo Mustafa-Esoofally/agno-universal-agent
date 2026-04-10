@@ -1,35 +1,38 @@
 import os
 from pathlib import Path
+from typing import Optional
 
 from agno.db.sqlite import SqliteDb
 
 
-# Data directory — all local state lives here
-_DATA_DIR = Path(os.getenv("UNIVERSAL_AGENT_DATA_DIR", "data"))
+# All local state lives here
+DATA_DIR = Path(os.getenv("UNIVERSAL_AGENT_DATA_DIR", "data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Singletons — constructed once per process
+_db = None
+_knowledge = None
 
 
 def get_db():
-    """Return the session/learning database.
+    global _db
+    if _db is not None:
+        return _db
 
-    Uses SqliteDb by default (zero-config). Set DATABASE_URL for Postgres.
-    """
     database_url = os.getenv("DATABASE_URL")
     if database_url:
         from agno.db.postgres import PostgresDb
-
-        return PostgresDb(db_url=database_url)
-
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    return SqliteDb(db_file=str(_DATA_DIR / "agent.db"))
+        _db = PostgresDb(db_url=database_url)
+    else:
+        _db = SqliteDb(db_file=str(DATA_DIR / "agent.db"))
+    return _db
 
 
 def get_knowledge():
-    """Return a Knowledge base backed by ChromaDb for LearnedKnowledge.
+    global _knowledge
+    if _knowledge is not None:
+        return _knowledge
 
-    ChromaDb stores vectors locally — no server needed.
-    Returns None if chromadb is not installed so the agent still works
-    without the vector search dependency.
-    """
     try:
         from agno.knowledge import Knowledge
         from agno.knowledge.embedder.openai import OpenAIEmbedder
@@ -37,14 +40,14 @@ def get_knowledge():
     except ImportError:
         return None
 
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    return Knowledge(
+    _knowledge = Knowledge(
         name="Agent Learnings",
         vector_db=ChromaDb(
             name="learnings",
-            path=str(_DATA_DIR / "chromadb"),
+            path=str(DATA_DIR / "chromadb"),
             persistent_client=True,
             search_type=SearchType.hybrid,
             embedder=OpenAIEmbedder(id="text-embedding-3-small"),
         ),
     )
+    return _knowledge

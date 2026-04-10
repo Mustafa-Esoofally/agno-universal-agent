@@ -1,11 +1,5 @@
-"""AgentOS server — multi-interface entrypoint.
-
-Starts a FastAPI server with Slack, Telegram, WhatsApp, and AGUI
-interfaces, plus cron scheduling. Each interface is enabled only
-when its credentials are present in the environment.
-
-Run: python -m universal_agent.run
-"""
+# AgentOS server — multi-interface entrypoint
+# Run: uvicorn universal_agent.run:app --host 0.0.0.0 --port 7777
 
 import os
 
@@ -13,41 +7,28 @@ from agno.os import AgentOS
 from agno.os.interfaces.agui import AGUI
 
 from universal_agent.agent import create_agent
-from universal_agent.db import get_db
+from universal_agent.db import get_db, get_knowledge
 from universal_agent.tools import ToolTier
 
 
 def build_app() -> AgentOS:
     db = get_db()
+    knowledge = get_knowledge()
 
-    # Server-facing agent uses SAFE tier by default for messaging
-    # Users can override via UNIVERSAL_AGENT_SERVER_TOOLS
-    tier_str = os.getenv("UNIVERSAL_AGENT_SERVER_TOOLS", "safe")
-    tier = ToolTier(tier_str)
-    agent = create_agent(tool_tier=tier)
+    tier_str = os.getenv("UNIVERSAL_AGENT_SERVER_TOOLS", "1")  # default: safe
+    tier = ToolTier(int(tier_str))
+    agent = create_agent(tool_tier=tier, db=db, knowledge=knowledge)
 
-    interfaces = []
+    interfaces = [AGUI(agent=agent)]
 
-    # AGUI (web interface) — always available
-    interfaces.append(AGUI(agent=agent))
-
-    # Slack — requires bot token + signing secret
     if os.getenv("SLACK_BOT_TOKEN") and os.getenv("SLACK_SIGNING_SECRET"):
         from agno.os.interfaces.slack import Slack
-        interfaces.append(Slack(
-            agent=agent,
-            resolve_user_identity=True,
-        ))
+        interfaces.append(Slack(agent=agent, resolve_user_identity=True))
 
-    # Telegram — requires bot token
     if os.getenv("TELEGRAM_BOT_TOKEN"):
         from agno.os.interfaces.telegram import Telegram
-        interfaces.append(Telegram(
-            agent=agent,
-            streaming=True,
-        ))
+        interfaces.append(Telegram(agent=agent, streaming=True))
 
-    # WhatsApp — requires access token + phone number ID
     if os.getenv("WHATSAPP_ACCESS_TOKEN") and os.getenv("WHATSAPP_PHONE_NUMBER_ID"):
         from agno.os.interfaces.whatsapp import Whatsapp
         interfaces.append(Whatsapp(agent=agent))
@@ -62,6 +43,7 @@ def build_app() -> AgentOS:
     )
 
 
+# Module-level: uvicorn resolves "universal_agent.run:app" by importing this module
 app = build_app()
 
 if __name__ == "__main__":
